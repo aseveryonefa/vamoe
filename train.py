@@ -20,7 +20,7 @@ from utils.YParams import YParams
 from utils.data_loader_npyfiles import get_data_loader_npy, surface_features, higher_features, pressure_level
 from networks import VAMoE
 from utils.img_utils import vis_precip
-import wandb
+# import wandb
 from utils.weighted_acc_rmse import weighted_acc, weighted_rmse, weighted_rmse_torch, unlog_tp_torch
 from apex import optimizers
 from utils.darcy_loss import LpLoss
@@ -46,9 +46,9 @@ class Trainer():
         self.world_rank = world_rank
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
 
-        if params.log_to_wandb:
-            # wandb.init(config=params, name=params.name, group=params.group, project=params.project, entity=params.entity)
-            wandb.init(config=params, name=params.name, group=params.group, project=params.project)
+        # if params.log_to_wandb:
+        #     # wandb.init(config=params, name=params.name, group=params.group, project=params.project, entity=params.entity)
+        #     wandb.init(config=params, name=params.name, group=params.group, project=params.project)
 
         logging.info('rank %d, begin data loader init'%world_rank)
         # self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(params, params.train_data_path, dist.is_initialized(), train=True)
@@ -60,7 +60,7 @@ class Trainer():
         self.loss_weight = params['loss_weight']
 
         logging.info(f'****** using {self.loss_type} in model training ******')
-        if self.loss_type == 'l2':
+        if self.loss_type == 'trainl2':
             learn_log_variance=dict(flag=True, channels=params['feature_dims'], logvar_init=0., requires_grad=True)
             self.loss_gen = L2_LOSS(learn_log_variance=learn_log_variance).to(self.device)
             self.loss_recons = L2_LOSS(learn_log_variance=learn_log_variance).to(self.device)
@@ -103,8 +103,8 @@ class Trainer():
             # NHWC: Convert model to channels_last memory format
             self.model = self.model.to(memory_format=torch.channels_last)
 
-        if params.log_to_wandb:
-            wandb.watch(self.model)
+        # if params.log_to_wandb:
+        #     wandb.watch(self.model)
 
         # fix optimizer to adamw  08.21
         # logging lr
@@ -209,10 +209,10 @@ class Trainer():
                     logging.info("Terminating training after reaching params.max_epochs while LR scheduler is set to CosineAnnealingLR")
                     exit()
 
-            if self.params.log_to_wandb:
-                for pg in self.optimizer.param_groups:
-                    lr = pg['lr']
-                wandb.log({'lr': lr})
+            # if self.params.log_to_wandb:
+            #     for pg in self.optimizer.param_groups:
+            #         lr = pg['lr']
+            #     wandb.log({'lr': lr})
 
 
             if self.world_rank == 0:
@@ -347,8 +347,8 @@ class Trainer():
                 dist.all_reduce(logs[key].detach())
                 logs[key] = float(logs[key]/dist.get_world_size())
 
-        if self.params.log_to_wandb:
-            wandb.log(logs, step=self.epoch)
+        # if self.params.log_to_wandb:
+        #     wandb.log(logs, step=self.epoch)
 
         return tr_time, data_time, logs
 
@@ -390,10 +390,12 @@ class Trainer():
                 if self.loss_type == 'trainl2':
                     if self.use_moe == 'densemoe' or self.use_moe == 'channelmoe' or self.use_moe=='channelmoev1' or self.use_moe=='channelmoev3':
                         self.posembed = self.posembed.to(self.device, dtype = torch.float)
-                        gen, recons, valid_loss = self.model(inp, target=tar, posembed=self.posembed, run_mode='val')
+                        gen, recons, batch_valid_loss = self.model(inp, target=tar, posembed=self.posembed, run_mode='val')
                     else:
-                        gen, recons, valid_loss = self.model(inp, target=tar, run_mode='val')
-                    gen, recons = map(lambda x: x.to(self.device, dtype = torch.float), [gen, recons])    
+                        gen, recons, batch_valid_loss = self.model(inp, target=tar, run_mode='val')
+                    gen, recons = map(lambda x: x.to(self.device, dtype = torch.float), [gen, recons])
+                    # 累加这个批次的损失
+                    valid_loss += batch_valid_loss    
 
                 else:                    
                     if self.use_moe == 'densemoe' or self.use_moe == 'channelmoe' or self.use_moe=='channelmoev1' or self.use_moe=='channelmoev3':
@@ -410,21 +412,22 @@ class Trainer():
                         valid_loss += self.loss_obj(gen, recons, tar, inp) 
 
 
-                ################## 在第390行附近，计算完batch_valid_loss后！！！！！！！！！！！
-                batch_valid_loss = self.loss_obj(gen, recons, tar, inp)
-                valid_loss += batch_valid_loss
+                # 对于非trainl2类型，需要额外计算batch_valid_loss用于打印
+                if self.loss_type != 'trainl2':
+                    batch_valid_loss = self.loss_obj(gen, recons, tar, inp)
+                    valid_loss += batch_valid_loss
 
-                # 添加验证批次的详细打印
-                if self.world_rank == 0 and i % 5 == 0:  # 每5个验证批次打印一次
-                    logging.info(f"验证批次 {i}: 损失 = {batch_valid_loss.item():.6f}")
+                    # 添加验证批次的详细打印
+                    if self.world_rank == 0 and i % 5 == 0:  # 每5个验证批次打印一次
+                        logging.info(f"验证批次 {i}: 损失 = {batch_valid_loss.item():.6f}")
 ###################################
 
                 valid_l1 += nn.functional.l1_loss(gen, tar)
 
                 valid_steps += 1.
                 # save fields for vis before log norm 
-                if (i == sample_idx) and (self.precip and self.params.log_to_wandb):
-                    fields = [gen[0,0].detach().cpu().numpy(), tar[0,0].detach().cpu().numpy()]
+                # if (i == sample_idx) and (self.precip and self.params.log_to_wandb):
+                #     fields = [gen[0,0].detach().cpu().numpy(), tar[0,0].detach().cpu().numpy()]
 
                 if self.precip:
                     gen = unlog_tp_torch(gen, self.params.precip_eps)
@@ -476,12 +479,12 @@ class Trainer():
             for i, name in enumerate(self.surface_features):
                 logs[name] = valid_weighted_rmse_cpu[i-num_surface_variables]
 
-        if self.params.log_to_wandb:
-            if self.precip:
-                fig = vis_precip(fields)
-                logs['vis'] = wandb.Image(fig)
-                plt.close(fig)
-            wandb.log(logs, step=self.epoch)
+        # if self.params.log_to_wandb:
+        #     if self.precip:
+        #         fig = vis_precip(fields)
+        #         logs['vis'] = wandb.Image(fig)
+        #         plt.close(fig)
+        #     wandb.log(logs, step=self.epoch)
 
         return valid_time, logs
 
@@ -666,8 +669,13 @@ if __name__ == '__main__':
   parser.add_argument("--enable_amp", action='store_true')
   parser.add_argument("--epsilon_factor", default = 0, type = float)
   parser.add_argument('--local_rank', default=-1, type=int, help='node rank for distributed training')
+  parser.add_argument('--local-rank', dest='local_rank_arg', type=int, help='node rank for distributed training (torch.distributed.launch compatibility)')
 
-  args = parser.parse_args()
+  args, unknown = parser.parse_known_args()
+  
+  # Handle both --local_rank (torchrun) and --local-rank (torch.distributed.launch)
+  if hasattr(args, 'local_rank_arg') and args.local_rank_arg != -1:
+    args.local_rank = args.local_rank_arg
 
   params = YParams(os.path.abspath(args.yaml_config), args.config)
   params['epsilon_factor'] = args.epsilon_factor
@@ -677,7 +685,7 @@ if __name__ == '__main__':
     params['world_size'] = int(os.environ['WORLD_SIZE'])
   logging.info(f"world_size:, {params['world_size']}")
 
-  wandb.require("core")
+  # wandb.require("core")
   world_rank = 0
   local_rank = 0
   if params['world_size'] > 1:
@@ -747,8 +755,9 @@ if __name__ == '__main__':
   #   params['N_in_channels'] = len(params['in_channels'])
   # params['N_out_channels'] = len(params['out_channels'])
 
-  params['in_channels'] = np.array(list(range(params['in_channels'])))
-  params['out_channels'] = np.array(list(range(params['out_channels'])))
+  # Set in_channels and out_channels to feature_dims for self-supervised learning
+  params['in_channels'] = np.array(list(range(params['feature_dims'])))
+  params['out_channels'] = np.array(list(range(params['feature_dims'])))
   if params.orography:
     params['N_in_channels'] = len(params['in_channels']) +1
   else:

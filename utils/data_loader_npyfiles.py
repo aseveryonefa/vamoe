@@ -470,8 +470,8 @@ class Era5Data(Dataset):
         self.mean_surface = np.array(self.mean_surface)
         self.std_surface = np.array(self.std_surface)
 
-        self.mean_pressure_level = [[self.all_mean_level[i][j] for j in mapping_dict] for i in higher_features]
-        self.std_pressure_level = [[self.all_std_level[i][j] for j in mapping_dict] for i in higher_features]
+        self.mean_pressure_level = [[self.all_mean_level[i][str(pressure_level[j])] for j in mapping_dict] for i in higher_features]
+        self.std_pressure_level = [[self.all_std_level[i][str(pressure_level[j])] for j in mapping_dict] for i in higher_features]
         self.mean_pressure_level = np.array(self.mean_pressure_level).transpose((1,0))
         self.std_pressure_level = np.array(self.std_pressure_level).transpose((1,0))
 
@@ -516,9 +516,10 @@ class Era5Data(Dataset):
 
         # if self.patch:
         self.h_size = self.h_size - self.h_size % self.patch_size
+        self.w_size = self.w_size - self.w_size % self.patch_size
 
-        x = x[:, :self.h_size, ...]
-        label = label[:, :self.h_size, ...]
+        x = x[:, :self.h_size, :self.w_size, ...]
+        label = label[:, :self.h_size, :self.w_size, ...]
         x = x.transpose((0, 4, 3, 1, 2)).reshape(self.t_in, level_size * feature_size, self.h_size, self.w_size)
         label = label.transpose((0, 4, 3, 1, 2)).reshape(self.t_out, level_size * feature_size,
                                                             self.h_size, self.w_size)
@@ -526,8 +527,8 @@ class Era5Data(Dataset):
                                                             
         if surface_features != []:
             surface_size = x_surface.shape[-1]
-            x_surface = x_surface[:, :self.h_size, ...]
-            label_surface = label_surface[:, :self.h_size, ...]
+            x_surface = x_surface[:, :self.h_size, :self.w_size, ...]
+            label_surface = label_surface[:, :self.h_size, :self.w_size, ...]
             x_surface = x_surface.transpose((0, 3, 1, 2)).reshape(self.t_in, surface_size, self.h_size, self.w_size)
             label_surface = label_surface.transpose((0, 3, 1, 2)).reshape(self.t_out, surface_size,
                                                                         self.h_size, self.w_size)
