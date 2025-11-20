@@ -412,14 +412,14 @@ class Trainer():
                         valid_loss += self.loss_obj(gen, recons, tar, inp) 
 
 
-                # 对于非trainl2类型，需要额外计算batch_valid_loss用于打印
-                if self.loss_type != 'trainl2':
-                    batch_valid_loss = self.loss_obj(gen, recons, tar, inp)
-                    valid_loss += batch_valid_loss
+                # # 对于非trainl2类型，需要额外计算batch_valid_loss用于打印
+                # if self.loss_type != 'trainl2':
+                #     batch_valid_loss = self.loss_obj(gen, recons, tar, inp)
+                #     valid_loss += batch_valid_loss
 
-                    # 添加验证批次的详细打印
-                    if self.world_rank == 0 and i % 5 == 0:  # 每5个验证批次打印一次
-                        logging.info(f"验证批次 {i}: 损失 = {batch_valid_loss.item():.6f}")
+                # 添加验证批次的详细打印
+                if self.world_rank == 0 and i % 5 == 0:  # 每5个验证批次打印一次
+                    logging.info(f"验证批次 {i}: 损失 = {batch_valid_loss.item():.6f}")
 ###################################
 
                 valid_l1 += nn.functional.l1_loss(gen, tar)
