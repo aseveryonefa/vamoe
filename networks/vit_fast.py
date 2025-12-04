@@ -98,30 +98,59 @@ class Attention(nn.Module):
                 self.rel_pos_w = nn.Parameter(torch.zeros(rel_sp_dim, head_dim))
         self.proj = nn.Linear(dim, dim)
 
+    # def forward(self, x, H, W):
+    #     B, N, C = x.shape
+    #     if  self.training:
+    #         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
+    #         data_type = qkv.dtype
+    #         if data_type != torch.float16:
+    #             qkv=qkv.to(torch.float16)
+    #         x = flash_attn_qkvpacked_func(qkv,dropout_p=0.0, softmax_scale=self.scale, causal=False).reshape(B, N, C)
+    #         x = x.to(data_type)
+    #     else:
+    #         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+    #         q, k, v = qkv.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
+
+    #         attn = ((q * self.scale) @ k.transpose(-2, -1))
+    #         if self.rel_pos_spatial:
+    #             raise
+    #             attn = calc_rel_pos_spatial(attn, q, self.window_size, self.window_size, self.rel_pos_h, self.rel_pos_w)
+
+    #         attn = attn.softmax(dim=-1)
+
+    #         x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+    #     x = self.proj(x)
+    #     return x
+    #修改使用Flash Attention！！！！！！！！！！！！！！！！！！！！
     def forward(self, x, H, W):
-        B, N, C = x.shape
-        if  self.training:
+            B, N, C = x.shape
+            
+            # ------------------------------------------------------------------
+            # 核心修改：不管 self.training 是 True 还是 False，都强制用 Flash Attention
+            # ------------------------------------------------------------------
             qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
-            data_type = qkv.dtype
-            if data_type != torch.float16:
-                qkv=qkv.to(torch.float16)
-            x = flash_attn_qkvpacked_func(qkv,dropout_p=0.0, softmax_scale=self.scale, causal=False).reshape(B, N, C)
-            x = x.to(data_type)
-        else:
-            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-            q, k, v = qkv.unbind(0)   # make torchscript happy (cannot use tensor as tuple)
+            
+            # 确保数据类型兼容 (Flash Attention 需要 fp16 或 bf16)
+            orig_dtype = qkv.dtype
+            target_dtype = torch.float16 if orig_dtype != torch.bfloat16 else torch.bfloat16
+            if qkv.dtype != target_dtype:
+                qkv = qkv.to(target_dtype)
+            
+            # 直接调用 flash_attn，不要写 else 分支回退到普通 attention
+            x = flash_attn_qkvpacked_func(
+                qkv, 
+                dropout_p=0.0,  # 验证时 dropout 为 0
+                softmax_scale=self.scale, 
+                causal=False
+            ).reshape(B, N, C)
+            
+            # 如果类型变了，转回原始类型
+            if x.dtype != orig_dtype:
+                x = x.to(orig_dtype)
+            # ------------------------------------------------------------------
 
-            attn = ((q * self.scale) @ k.transpose(-2, -1))
-            if self.rel_pos_spatial:
-                raise
-                attn = calc_rel_pos_spatial(attn, q, self.window_size, self.window_size, self.rel_pos_h, self.rel_pos_w)
-
-            attn = attn.softmax(dim=-1)
-
-            x = (attn @ v).transpose(1, 2).reshape(B, N, C)
-        x = self.proj(x)
-        return x
-
+            x = self.proj(x)
+            return x
 
 def window_partition(x, window_size):
     """

@@ -232,3 +232,13 @@ Test results of RMSE: z500: 7011.006774902344, q500: 0.010265713119506834, u500:
 
 现在可以顺利运行训练和推理任务。
 ## =========================================================================
+
+
+### 增加了梯度检查点 (Gradient Checkpointing)在networks/VAMoE.py 中 VAMoE 类的 forward 函数。
+
+梯度检查点 (Gradient Checkpointing) 用时间换空间，将不保存中间计算结果，在反向传播的过程中再进行重新计算，节省显存的空间。
+
+
+### networks/vit_fast.py，中的 Attention 类中，取消了使用flash——attention判断代码
+
+验证时 (else 分支)：走了普通 Attention，计算了巨大的矩阵，导致OOM

@@ -4,7 +4,7 @@ config='vamoe'
 run_num='1'
 
 
-NAME='function_check'
+NAME='function_check3'
 
 LOG_DIR="./logs/${NAME}/"
 # 确保目录存在

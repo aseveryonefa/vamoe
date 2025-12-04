@@ -279,34 +279,67 @@ class VAMoE(nn.Module):
 
         loss = 0
         #self.blocks的数量由encoder_depths决定
+        # for i, blk in enumerate(self.blocks):
+        #     if self.model_type == 'vit':
+        #         # if i == 1:
+        #         # a = (x, self.h, self.w, posembed)
+        #         # mid_output = checkpoint(blk, *a, use_reentrant=True)
+        #         # else:
+        #         mid_output = blk(x, self.h, self.w, posembed=posembed)
+        #     elif self.model_type == 'VAMoE':
+        #         mid_output = blk(x)
+        #         # a = (x)
+        #         # mid_output = checkpoint(blk, *a)
+
+        #     if self.use_moe=='moe':
+        #         x, l = mid_output
+        #         loss += l
+        #     elif self.use_moe=='channelmoev3':
+        #         x, expert_output = mid_output
+        #         if run_mode=='train':
+        #             if (i+1)%self.num_interval == 0:
+        #                 j = int( (i+1)//self.num_interval ) - 1
+        #                 loss += self.tiny_loss_weights[j] * self.expert_loss(expert_output, target)
+        #             # print('loss:', loss)
+        #     else:
+        #         x = mid_output.clone()
+
+        #     # print('mid output: ', x.shape, x[0,0,:10])
+        # self.blocks的数量由encoder_depths决定，修改启用梯度检查点!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
         for i, blk in enumerate(self.blocks):
             if self.model_type == 'vit':
-                # if i == 1:
-                # a = (x, self.h, self.w, posembed)
-                # mid_output = checkpoint(blk, *a, use_reentrant=True)
-                # else:
-                mid_output = blk(x, self.h, self.w, posembed=posembed)
+                if self.training:
+                    # 训练模式下使用 checkpoint 节省显存
+                    # 注意：传入参数必须与 Block.forward 的参数顺序一致 (x, H, W, posembed)
+                    # use_reentrant=False 是新版 PyTorch 推荐配置，如果报错可尝试改为 True 或去掉该参数
+                    mid_output = checkpoint(blk, x, self.h, self.w, posembed, use_reentrant=False)
+                else:
+                    # 验证/测试模式正常前向传播
+                    mid_output = blk(x, self.h, self.w, posembed=posembed)
+            
             elif self.model_type == 'VAMoE':
-                mid_output = blk(x)
-                # a = (x)
-                # mid_output = checkpoint(blk, *a)
-
-            if self.use_moe=='moe':
+                if self.training:
+                    # 训练模式下使用 checkpoint
+                    mid_output = checkpoint(blk, x, use_reentrant=False)
+                else:
+                    mid_output = blk(x)
+            if self.use_moe == 'moe':
                 x, l = mid_output
                 loss += l
-            elif self.use_moe=='channelmoev3':
+            elif self.use_moe == 'channelmoev3':
                 x, expert_output = mid_output
-                if run_mode=='train':
-                    if (i+1)%self.num_interval == 0:
-                        j = int( (i+1)//self.num_interval ) - 1
+                if run_mode == 'train':
+                    if (i + 1) % self.num_interval == 0:
+                        j = int((i + 1) // self.num_interval) - 1
                         loss += self.tiny_loss_weights[j] * self.expert_loss(expert_output, target)
                     # print('loss:', loss)
             else:
-                x = mid_output.clone()
+                # 对于普通输出，必须使用 clone() 或者是 checkpoint 返回的 tensor
+                # 这里的 x = mid_output.clone() 是为了避免原地操作 (in-place operation) 导致的梯度计算错误
+                # 如果使用了 checkpoint，mid_output 本身就是一个新的计算节点，通常可以直接赋值
+                # 但为了保险起见，保持原逻辑的 clone 也是可以的，或者直接 x = mid_output
+                x = mid_output
 
-            # print('mid output: ', x.shape, x[0,0,:10])
-
-        # print('mid feature output, ', x.shape)
         
         output = self.decoder(x)
 
