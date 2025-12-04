@@ -4,7 +4,7 @@ config='vamoe'
 run_num='1'
 
 
-NAME='function_check3'
+NAME='function_check5'
 
 LOG_DIR="./logs/${NAME}/"
 # 确保目录存在
@@ -34,9 +34,7 @@ fi
 #             --checkpoint="$checkpoint" \
 #             > ${LOG_DIR}train.log 2>&1
 
-
-#双卡运行
-CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 train.py \
+CUDA_VISIBLE_DEVICES=0 python train.py \
             --enable_amp \
             --yaml_config=$config_file \
             --config=$config \
@@ -44,3 +42,14 @@ CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 t
             --exp_dir=$LOG_DIR \
             --checkpoint="$checkpoint" \
             > ${LOG_DIR}train.log 2>&1
+
+
+# #双卡运行
+# CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 train.py \
+#             --enable_amp \
+#             --yaml_config=$config_file \
+#             --config=$config \
+#             --run_num=$run_num \
+#             --exp_dir=$LOG_DIR \
+#             --checkpoint="$checkpoint" \
+#             > ${LOG_DIR}train.log 2>&1
